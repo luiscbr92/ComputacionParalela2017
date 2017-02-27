@@ -28,4 +28,4 @@ recorre la matriz de etiquetas contando el número de celdas que tienen como
 etiqueta su propia posición lineal. El resultado es el número de objetos
 diferentes.
 
-(c) 2017, Grupo Trasgo, Universidad de Valladolid
+##### (c) 2017, Grupo Trasgo, Universidad de Valladolid

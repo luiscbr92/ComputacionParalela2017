@@ -20,4 +20,4 @@
 
   ![circles1.data](circles1_tn.png)
 
-(c) 2017, Grupo Trasgo, Universidad de Valladolid
+##### (c) 2017, Grupo Trasgo, Universidad de Valladolid

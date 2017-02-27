@@ -1,6 +1,6 @@
 # Contar Cuerpos Celestes
 
-1. Enunciado
+### 1. Enunciado
 
   Se suministra a los alumnos un código secuencial (ver apéndices al final de la
   página) para contar el número de objetos diferentes que se ven en una imagen o
@@ -30,7 +30,7 @@
 
   (Ver ejemplo en transparencias del apéndice más abajo)
 
-2. Detalles del código secuencial
+### 2. Detalles del código secuencial
 
   La fase de etiquetado utiliza 3 matrices del tamaño de la imagen con una fila
   y una columna extra al principio y final de la matriz (halo):
@@ -58,7 +58,7 @@
   etiqueta su propia posición lineal. El resultado es el número de objetos
   diferentes.
 
-3. Apéndices
+### 3. Apéndices
 
   Puedes ver [aquí](apendiceEnunciado.pdf) las transparencias de presentacion de la práctica con el ejemplo.
 
@@ -85,4 +85,4 @@
 
     ![circles1.data](../ficherosPrueba/circles1_tn.png)
 
-(c) 2017, Grupo Trasgo, Universidad de Valladolid
+##### (c) 2017, Grupo Trasgo, Universidad de Valladolid
