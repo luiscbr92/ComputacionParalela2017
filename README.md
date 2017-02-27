@@ -19,4 +19,4 @@ asignatura. Cada solución utiliza un modelo de Computación Paralela diferente:
 - CUDA
 
 Puedes revisar el enunciado del problema usando este
-[enlace](Enunciado/Enunciado.md).
+  [enlace](Enunciado/README.md).

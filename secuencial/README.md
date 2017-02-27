@@ -2,6 +2,7 @@
 
 La fase de etiquetado utiliza 3 matrices del tamaño de la imagen con una fila
 y una columna extra al principio y final de la matriz (halo):
+
 1. Matriz con los índices de color de cada pixel (en los posiciones del halo
   se coloca el valor 0)
 2. Matriz de etiquetas
@@ -10,7 +11,7 @@ y una columna extra al principio y final de la matriz (halo):
 
 La matriz de etiquetas se inicializa de la siguiente forma:
 - Pixels con índice 0: Se etiquetan con el valor -1
-- Pixels con índices entre 1 y 15: Se etiquetan con la posición   del elemento
+- Pixels con índices entre 1 y 15: Se etiquetan con la posición del elemento
   de la matriz: _i*NUMCOLS+j_
 
 La fase de etiquetado es un bucle en el que en cada paso:
