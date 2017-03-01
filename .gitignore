@@ -31,3 +31,11 @@
 # Debug files
 *.dSYM/
 *.su
+
+# Añadidos por Luis y Angel
+*/ScanSky_seq
+*/ScanSky_seq_debug
+*/ScanSky_seq_write
+*/ScanSky_OpenMP
+*/ScanSky_OpenMP_debug
+*/ScanSky_OpenMP_write
