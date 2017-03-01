@@ -33,6 +33,7 @@
 *.su
 
 # Añadidos por Luis y Angel
+/client
 */ScanSky_seq
 */ScanSky_seq_debug
 */ScanSky_seq_write
