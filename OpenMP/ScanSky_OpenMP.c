@@ -152,6 +152,8 @@ int main (int argc, char* argv[])
  		perror ("Error reservando memoria");
 	   	return -1;
 	}
+
+	#pragma omp parallel for shared(matrixResult, matrixData), private(i, j)
 	for(i=0;i< rows; i++){
 		for(j=0;j< columns; j++){
 			matrixResult[i*(columns)+j]=-1;

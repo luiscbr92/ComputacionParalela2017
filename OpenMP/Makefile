@@ -5,7 +5,7 @@
 #
 
 CC=gcc
-CFLAGS=-O3
+CFLAGS=-O3 -fopenmp
 
 EXES=ScanSky_OpenMP ScanSky_OpenMP_debug ScanSky_OpenMP_write
 
