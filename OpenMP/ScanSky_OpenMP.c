@@ -176,6 +176,7 @@ int main (int argc, char* argv[])
 		flagCambio=0;
 
 		/* 4.2.1 Actualizacion copia */
+		#pragma omp parallel for shared(matrixResult, matrixResultCopy), private(i, j)
 		for(i=1;i<rows-1;i++){
 			for(j=1;j<columns-1;j++){
 				if(matrixResult[i*(columns)+j]!=-1){
