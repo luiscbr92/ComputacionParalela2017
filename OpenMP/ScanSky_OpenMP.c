@@ -117,8 +117,8 @@ int main (int argc, char* argv[])
 	}
 	for(i=1;i<columns-1;i++){
 		matrixData[0*(columns)+i]=0;
-		matrixData[(columns-1)*(columns)+i]=0;
-	}
+   	matrixData[(rows-1)*(columns)+i]=0;
+ 	}
 	/* 2.6 Relleno la matriz con los datos del fichero */
 	for(i=1;i<rows-1;i++){
 		for(j=1;j<columns-1;j++){
@@ -153,18 +153,17 @@ int main (int argc, char* argv[])
 	   	return -1;
 	}
 
-	#pragma omp parallel shared(matrixResult, matrixData) private(i, j)
-	{
-	for(i=0;i< rows; i++){
-		for(j=0;j< columns; j++){
-			matrixResult[i*(columns)+j]=-1;
-			// Si es 0 se trata del fondo y no lo computamos
-			if(matrixData[i*(columns)+j]!=0){
-				matrixResult[i*(columns)+j]=i*(columns)+j;
+
+	#pragma omp parallel for shared(matrixResult, matrixData) private(i,j)
+		for(i=0;i< rows; i++){
+			for(j=0;j< columns; j++){
+				matrixResult[i*(columns)+j]=-1;
+				// Si es 0 se trata del fondo y no lo computamos
+				if(matrixData[i*(columns)+j]!=0){
+					matrixResult[i*(columns)+j]=i*(columns)+j;
+				}
 			}
 		}
-	}
-	}
 
 
 	/* 4. Computacion */
@@ -178,21 +177,23 @@ int main (int argc, char* argv[])
 
 		/* 4.2.1 Actualizacion copia */
 		#pragma omp parallel for shared (matrixResult, matrixResultCopy) private(i,j)
-		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				if(matrixResult[i*(columns)+j]!=-1){
-					matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
+			for(i=1;i<rows-1;i++){
+				for(j=1;j<columns-1;j++){
+					if(*(matrixResult+(i*(columns)+j))!=-1){
+						matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
+					}
 				}
 			}
-		}
+
 
 		/* 4.2.2 Computo y detecto si ha habido cambios */
 		#pragma omp parallel for shared (matrixResult, matrixResultCopy, matrixData) private(i,j) reduction(+:flagCambio)
-		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
+			for(i=1;i<rows-1;i++){
+				for(j=1;j<columns-1;j++){
+					flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
+				}
 			}
-		}
+
 
 
 		#ifdef DEBUG
@@ -205,18 +206,19 @@ int main (int argc, char* argv[])
 			}
 		#endif
 
-}
+	}
 
 	/* 4.3 Inicio cuenta del numero de bloques */
 	numBlocks=0;
-	
-	#pragma omp parallel for shared(matrixResult) private(i, j) reduction(+:numBlocks)
-	for(i=1;i<rows-1;i++){
-		for(j=1;j<columns-1;j++){
-			if(matrixResult[i*columns+j] == i*columns+j)
-				numBlocks++;
+
+	#pragma omp parallel for shared(matrixResult) private(i,j) reduction(+:numBlocks)
+		for(i=1;i<rows-1;i++){
+			for(j=1;j<columns-1;j++){
+				if(matrixResult[i*columns+j] == i*columns+j)
+					numBlocks++;
+			}
 		}
-	}
+	
 
 //
 // EL CODIGO A PARALELIZAR TERMINA AQUI
