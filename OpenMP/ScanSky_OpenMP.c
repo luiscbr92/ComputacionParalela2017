@@ -206,7 +206,6 @@ int main (int argc, char* argv[])
 		}
 	}
 
-
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
 			for(i=0;i<rows;i++){
