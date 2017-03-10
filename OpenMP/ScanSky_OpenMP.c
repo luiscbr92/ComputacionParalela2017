@@ -24,26 +24,26 @@
 /**
 * Funcion secuencial para la busqueda de mi bloque
 */
-int computation(int x, int y, int columns, int* matrixData, int *matrixResult, int *matrixResultCopy){
+int computation(int x, int y, int columns, int* matrixData, int *matrixResult/*, int *matrixResultCopy*/){
 	// Inicialmente cojo mi indice
-	int result=matrixResultCopy[x*columns+y];
+	int result=matrixResult[x*columns+y];
 	if( result!= -1){
 		//Si es de mi mismo grupo, entonces actualizo
 		if(matrixData[(x-1)*columns+y] == matrixData[x*columns+y])
 		{
-			result = min (result, matrixResultCopy[(x-1)*columns+y]);
+			result = min (result, matrixResult[(x-1)*columns+y]);
 		}
 		if(matrixData[(x+1)*columns+y] == matrixData[x*columns+y])
 		{
-			result = min (result, matrixResultCopy[(x+1)*columns+y]);
+			result = min (result, matrixResult[(x+1)*columns+y]);
 		}
 		if(matrixData[x*columns+y-1] == matrixData[x*columns+y])
 		{
-			result = min (result, matrixResultCopy[x*columns+y-1]);
+			result = min (result, matrixResult[x*columns+y-1]);
 		}
 		if(matrixData[x*columns+y+1] == matrixData[x*columns+y])
 		{
-			result = min (result, matrixResultCopy[x*columns+y+1]);
+			result = min (result, matrixResult[x*columns+y+1]);
 		}
 
 		// Si el indice no ha cambiado retorna 0
@@ -154,11 +154,7 @@ int main (int argc, char* argv[])
 	}
 
 	#pragma omp parallel for shared(matrixResult, matrixData) private(i, j)
-	// /#pragma omp parallel shared (matrixData, matrixResult)// private(i, j)
-	//{
-		//#pragma omp for private(i,j)
 	for(i=0;i< rows; i++){
-		//#pragma omp parallel for private(j) firstprivate(i)
 		for(j=0;j< columns; j++){
 			matrixResult[i*(columns)+j]=-1;
 			// Si es 0 se trata del fondo y no lo computamos
@@ -167,7 +163,6 @@ int main (int argc, char* argv[])
 			}
 		}
 	}
-//}
 
 	/* 4. Computacion */
 	int t=0;
@@ -179,32 +174,23 @@ int main (int argc, char* argv[])
 		flagCambio=0;
 
 		/* 4.2.1 Actualizacion copia */
-		#pragma omp parallel for shared (matrixResult, matrixResultCopy)// private(i,j)
-		//#pragma omp parallel shared (matrixResult, matrixResultCopy)
-		//{
-			//#pragma omp for private(i,j)
+		#pragma omp parallel for shared (matrixResult, matrixResultCopy) private(i,j)
 		for(i=1;i<rows-1;i++){
-			#pragma omp parallel for private(j) firstprivate(i)
 			for(j=1;j<columns-1;j++){
-				if(matrixResult[i*(columns)+j]!=-1){
+				//if(matrixResult[i*(columns)+j]!=-1){
 					matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
-				}
+				//}
 			}
 		}
-	//}
 
 		/* 4.2.2 Computo y detecto si ha habido cambios */
-		//#pragma omp parallel for shared (matrixData, matrixResult, matrixResultCopy)// private(i,j) reduction(+:flagCambio)
-		#pragma omp parallel shared (matrixData, matrixResult, matrixResultCopy)// reduction(+:flagCambio)
-		{
-			//#pragma omp for private(i,j)// reduction(+:flagCambio)
+		#pragma omp parallel for shared (matrixData, matrixResult/*, matrixResultCopy*/) private(i,j) reduction(+:flagCambio)
 		for(i=1;i<rows-1;i++){
-			#pragma omp parallel for private(j) firstprivate(i) reduction(+:flagCambio)
 			for(j=1;j<columns-1;j++){
-				flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
+				flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult/*, matrixResultCopy*/);
 			}
 		}
-	}
+
 
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
@@ -221,18 +207,13 @@ int main (int argc, char* argv[])
 	/* 4.3 Inicio cuenta del numero de bloques */
 	numBlocks=0;
 
-	//#pragma omp parallel for shared(matrixResult) private(i, j) reduction(+:numBlocks)
-	#pragma omp parallel shared (matrixResult) private(i,j)// reduction(+:numBlocks)
-	{
-		#pragma omp parallel for private(i,j) reduction(+:numBlocks)
+	#pragma omp parallel for shared(matrixResult) private(i, j) reduction(+:numBlocks)
 	for(i=1;i<rows-1;i++){
-		//#pragma omp parallel for private(j) firstprivate(i) reduction(+:numBlocks)
 		for(j=1;j<columns-1;j++){
 			if(matrixResult[i*columns+j] == i*columns+j)
 				numBlocks++;
 		}
 	}
-}
 
 //
 // EL CODIGO A PARALELIZAR TERMINA AQUI
