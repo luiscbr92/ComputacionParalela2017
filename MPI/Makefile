@@ -7,18 +7,18 @@
 CC=mpicc
 CFLAGS=-O3
 
-EXES=ScanSky_mpiseq ScanSky_mpiseq_debug ScanSky_mpiseq_write
+EXES=ScanSky_mpi ScanSky_mpi_debug ScanSky_mpi_write
 
 all: $(EXES)
 
 clean:
 	rm -f $(EXES)
 
-ScanSky_mpiseq: ScanSky_mpiseq.c cputils.h
+ScanSky_mpi: ScanSky_mpi.c cputils.h
 	$(CC) $(CFLAGS) $< -o $@
 
-ScanSky_mpiseq_debug: ScanSky_mpiseq.c cputils.h
+ScanSky_mpi_debug: ScanSky_mpi.c cputils.h
 	$(CC) $(CFLAGS) -DDEBUG -DWRITE $< -o $@
 
-ScanSky_mpiseq_write: ScanSky_mpiseq.c cputils.h
+ScanSky_mpi_write: ScanSky_mpi.c cputils.h
 	$(CC) $(CFLAGS) -DWRITE $< -o  $@
