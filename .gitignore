@@ -32,7 +32,7 @@
 *.dSYM/
 *.su
 
-# A単adidos por Luis y Angel
+# Añadidos por Luis y Angel
 /client
 */ScanSky_seq
 */ScanSky_seq_debug
