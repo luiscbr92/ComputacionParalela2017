@@ -194,7 +194,6 @@ int main (int argc, char* argv[])
 
 
 	if ( world_rank == 0 ) {
-		//printf("Fin zona paralelizada\n");
 		/* 4. Computacion */
 		int t=0;
 		/* 4.1 Flag para ver si ha habido cambios y si se continua la ejecucion */
@@ -231,15 +230,25 @@ int main (int argc, char* argv[])
 			#endif
 
 		}
+	}
 
 		/* 4.3 Inicio cuenta del numero de bloques */
 		numBlocks=0;
+		int numBlocksProc = 0;
 		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				if(matrixResult[i*columns+j] == i*columns+j) numBlocks++;
+			if(world_rank == 0){
+				destination = i % (world_size -1) +1;
+				MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+			}
+			if(world_rank == i % (world_size -1) +1){
+				int result[columns];
+				MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
+				for(j=1;j<columns-1;j++){
+					if(result[j] == i*columns+j) numBlocksProc++;
+				}
 			}
 		}
-	}
+		MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
 	//
 	// EL CODIGO A PARALELIZAR TERMINA AQUI
