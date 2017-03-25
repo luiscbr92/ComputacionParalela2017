@@ -79,6 +79,8 @@ int main (int argc, char* argv[])
 	int world_size = -1;
 	double t_ini;
 	int i,j;
+	int destination;
+	MPI_Status stat;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
@@ -154,6 +156,9 @@ int main (int argc, char* argv[])
 	//
 	// EL CODIGO A PARALELIZAR COMIENZA AQUI
 	//
+
+	MPI_Bcast(&rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&columns, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	if ( world_rank == 0 ) {
 
 		/* 3. Etiquetado inicial */
@@ -163,18 +168,33 @@ int main (int argc, char* argv[])
 			perror ("Error reservando memoria");
 			return -1;
 		}
-		for(i=0;i< rows; i++){
+	}
+
+	for(i=0;i< rows; i++){
+		if(world_rank == 0){
+			destination = i % (world_size -1) +1;
+			MPI_Send(&matrixData[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+			MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+			MPI_Recv(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD, &stat);
+		}
+		if(world_rank == i % (world_size -1) +1){
+			int data[columns], result[columns];
+			MPI_Recv(&data, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
+			MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
 			for(j=0;j< columns; j++){
-				matrixResult[i*(columns)+j]=-1;
+				result[j]=-1;
 				// Si es 0 se trata del fondo y no lo computamos
-				if(matrixData[i*(columns)+j]!=0){
-					matrixResult[i*(columns)+j]=i*(columns)+j;
+				if(data[j]!=0){
+					result[j]=i*(columns)+j;
 				}
 			}
+			MPI_Send(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD);
 		}
+	}
 
 
-
+	if ( world_rank == 0 ) {
+		//printf("Fin zona paralelizada\n");
 		/* 4. Computacion */
 		int t=0;
 		/* 4.1 Flag para ver si ha habido cambios y si se continua la ejecucion */
