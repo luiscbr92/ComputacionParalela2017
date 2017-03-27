@@ -207,7 +207,7 @@ int main (int argc, char* argv[])
 			// LA PARALELIZACIÓN DE ESTE BUCLE NO APORTA MEJORA. ESTE IF ES PARA ELEGIR SI PARALELIZAR O NO
 			// DE HECHO, FALLA CON PARALELIZACION: SE VA A TIEMPO LIMITE. PUEDE SER QUE LA PARALELIZACION NO
 			// ESTE BIEN PENSADA. REVISAR
-			if(0){
+			if(0){// 0 = Secuencial en P0; 1 = paralelo
 				for(i=1;i<rows-1;i++){
 					if(world_rank == 0){
 						destination = i % (world_size -1) +1;
@@ -257,15 +257,26 @@ int main (int argc, char* argv[])
 
 		/* 4.3 Inicio cuenta del numero de bloques */
 		numBlocks=0;
-		int numBlocksProc = 0;
-		for(i=1;i<rows-1;i++){
-			if(world_rank == i % (world_size -1) +1){
+		if(0){// 0 = Secuencial en P0; 1 = paralelo
+			// Eliminar este broadcast cuando se paralelice todo
+			MPI_Bcast(&matrixResult[0], (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
+			int numBlocksProc = 0;
+			for(i=1;i<rows-1;i++){
+				if(world_rank == i % (world_size -1) +1){
+					for(j=1;j<columns-1;j++){
+						if(matrixResult[i*columns+j] == i*columns+j) numBlocksProc++;
+					}
+				}
+			}
+			MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+		}
+		else{
+			for(i=1;i<rows-1;i++){
 				for(j=1;j<columns-1;j++){
-					if(matrixResult[i*columns+j] == i*columns+j) numBlocksProc++;
+					if(matrixResult[i*columns+j] == i*columns+j) numBlocks++;
 				}
 			}
 		}
-		MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
 	//
 	// EL CODIGO A PARALELIZAR TERMINA AQUI
