@@ -166,29 +166,15 @@ int main (int argc, char* argv[])
 			return -1;
 		}
 	}
-	for (int dest = 1; dest< world_size; dest++){
-		//printf("Hola desde %d columnas %d filas %d\n", world_rank, columns, rows);
-		if(world_rank == 0){
-			printf("Envio desde %d a %d\n", 0, dest);
-			MPI_Send(&matrixData, (rows)*(columns), MPI_INT, dest, dest, MPI_COMM_WORLD);
-		}
-		if(world_rank == dest){
-			printf("Recibo desde %d a %d\n", dest, 0);
-			MPI_Recv(&matrixData, (rows)*(columns), MPI_INT, 0, dest, MPI_COMM_WORLD, &stat);
-			printf("Hecho en el proceso %d\n", dest);
-		}
-	}
-	//MPI_Bcast(&matrixData, (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
-	//if ( world_rank == 0 ) {
+	MPI_Bcast(&matrixData[0], (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
 
-		/* 3. Etiquetado inicial */
-		matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int) );
-		matrixResultCopy= (int *)malloc( (rows)*(columns) * sizeof(int) );
-		if ( (matrixResult == NULL)  || (matrixResultCopy == NULL)  ) {
-			perror ("Error reservando memoria");
-			return -1;
-		}
-	//}
+	/* 3. Etiquetado inicial */
+	matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int) );
+	matrixResultCopy= (int *)malloc( (rows)*(columns) * sizeof(int) );
+	if ( (matrixResult == NULL)  || (matrixResultCopy == NULL)  ) {
+		perror ("Error reservando memoria");
+		return -1;
+	}
 	for(i=0;i< rows; i++){
 		if(world_rank == 0){
 			destination = i % (world_size -1) +1;
@@ -205,7 +191,7 @@ int main (int argc, char* argv[])
 			MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, 0, i, MPI_COMM_WORLD);
 		}
 	}
-	//MPI_Bcast(&matrixResult, (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&matrixResult[0], (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
 
 
 		/* 4. Computacion */
@@ -225,22 +211,17 @@ int main (int argc, char* argv[])
 				for(i=1;i<rows-1;i++){
 					if(world_rank == 0){
 						destination = i % (world_size -1) +1;
-						MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
-						//MPI_Send(&matrixResultCopy[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
-						MPI_Recv(&matrixResultCopy[i*(columns)], columns, MPI_INT, destination, i , MPI_COMM_WORLD, &stat);
+						MPI_Recv(&matrixResultCopy[i*(columns)], columns, MPI_INT, destination, i ,MPI_COMM_WORLD, &stat);
 					}
 					if(world_rank == i % (world_size -1) +1){
-						int result[columns], resultCopy[columns];
-						//resultCopy[0] = -1; resultCopy[columns-1] = -1;
-						MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
-						//MPI_Recv(&resultCopy, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
 						// TODO: OPTIMIZABLE SI QUITAMOS EL BUCLE FOR Y HACEMOS EL PASO DE MENSAJE result -> resultCopy
 						for(j=1;j<columns-1;j++){
-							resultCopy[j]=result[j];
+							matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
 						}
-						MPI_Send(&resultCopy, columns, MPI_INT, 0, i, MPI_COMM_WORLD);
+						MPI_Send(&matrixResultCopy[i*(columns)], columns, MPI_INT, 0, i, MPI_COMM_WORLD);
 					}
 				}
+				MPI_Bcast(&matrixResultCopy[0], (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
 			}
 			else{
 				if(world_rank == 0){
@@ -278,15 +259,9 @@ int main (int argc, char* argv[])
 		numBlocks=0;
 		int numBlocksProc = 0;
 		for(i=1;i<rows-1;i++){
-			if(world_rank == 0){
-				destination = i % (world_size -1) +1;
-				MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
-			}
 			if(world_rank == i % (world_size -1) +1){
-				int result[columns];
-				MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
 				for(j=1;j<columns-1;j++){
-					if(result[j] == i*columns+j) numBlocksProc++;
+					if(matrixResult[i*columns+j] == i*columns+j) numBlocksProc++;
 				}
 			}
 		}
