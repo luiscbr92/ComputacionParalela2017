@@ -79,6 +79,8 @@ int main (int argc, char* argv[])
 	int world_size = -1;
 	double t_ini;
 	int i,j;
+	int destination;
+	MPI_Status stat;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
@@ -154,7 +156,30 @@ int main (int argc, char* argv[])
 	//
 	// EL CODIGO A PARALELIZAR COMIENZA AQUI
 	//
-	if ( world_rank == 0 ) {
+
+	MPI_Bcast(&rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&columns, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	if(world_rank != 0){
+		matrixData= (int *)malloc( rows*(columns) * sizeof(int) );
+		if ( (matrixData == NULL)   ) {
+			perror ("Error reservando memoria");
+			return -1;
+		}
+	}
+	for (int dest = 1; dest< world_size; dest++){
+		//printf("Hola desde %d columnas %d filas %d\n", world_rank, columns, rows);
+		if(world_rank == 0){
+			printf("Envio desde %d a %d\n", 0, dest);
+			MPI_Send(&matrixData, (rows)*(columns), MPI_INT, dest, dest, MPI_COMM_WORLD);
+		}
+		if(world_rank == dest){
+			printf("Recibo desde %d a %d\n", dest, 0);
+			MPI_Recv(&matrixData, (rows)*(columns), MPI_INT, 0, dest, MPI_COMM_WORLD, &stat);
+			printf("Hecho en el proceso %d\n", dest);
+		}
+	}
+	//MPI_Bcast(&matrixData, (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
+	//if ( world_rank == 0 ) {
 
 		/* 3. Etiquetado inicial */
 		matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int) );
@@ -163,7 +188,13 @@ int main (int argc, char* argv[])
 			perror ("Error reservando memoria");
 			return -1;
 		}
-		for(i=0;i< rows; i++){
+	//}
+	for(i=0;i< rows; i++){
+		if(world_rank == 0){
+			destination = i % (world_size -1) +1;
+			MPI_Recv(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD, &stat);
+		}
+		if(world_rank == i % (world_size -1) +1){
 			for(j=0;j< columns; j++){
 				matrixResult[i*(columns)+j]=-1;
 				// Si es 0 se trata del fondo y no lo computamos
@@ -171,8 +202,10 @@ int main (int argc, char* argv[])
 					matrixResult[i*(columns)+j]=i*(columns)+j;
 				}
 			}
+			MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, 0, i, MPI_COMM_WORLD);
 		}
-
+	}
+	//MPI_Bcast(&matrixResult, (rows)*(columns), MPI_INT, 0, MPI_COMM_WORLD);
 
 
 		/* 4. Computacion */
@@ -185,20 +218,47 @@ int main (int argc, char* argv[])
 			flagCambio=0;
 
 			/* 4.2.1 Actualizacion copia */
-			for(i=1;i<rows-1;i++){
-				for(j=1;j<columns-1;j++){
-					if(matrixResult[i*(columns)+j]!=-1){
-						matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
+			// LA PARALELIZACIÓN DE ESTE BUCLE NO APORTA MEJORA. ESTE IF ES PARA ELEGIR SI PARALELIZAR O NO
+			// DE HECHO, FALLA CON PARALELIZACION: SE VA A TIEMPO LIMITE. PUEDE SER QUE LA PARALELIZACION NO
+			// ESTE BIEN PENSADA. REVISAR
+			if(0){
+				for(i=1;i<rows-1;i++){
+					if(world_rank == 0){
+						destination = i % (world_size -1) +1;
+						MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+						//MPI_Send(&matrixResultCopy[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+						MPI_Recv(&matrixResultCopy[i*(columns)], columns, MPI_INT, destination, i , MPI_COMM_WORLD, &stat);
+					}
+					if(world_rank == i % (world_size -1) +1){
+						int result[columns], resultCopy[columns];
+						//resultCopy[0] = -1; resultCopy[columns-1] = -1;
+						MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
+						//MPI_Recv(&resultCopy, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
+						// TODO: OPTIMIZABLE SI QUITAMOS EL BUCLE FOR Y HACEMOS EL PASO DE MENSAJE result -> resultCopy
+						for(j=1;j<columns-1;j++){
+							resultCopy[j]=result[j];
+						}
+						MPI_Send(&resultCopy, columns, MPI_INT, 0, i, MPI_COMM_WORLD);
 					}
 				}
 			}
+			else{
+				if(world_rank == 0){
+					for(i=1;i<rows-1;i++)
+						for(j=1;j<columns-1;j++)
+							matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
+				}
+			}
 
+
+			if(world_rank == 0){
 			/* 4.2.2 Computo y detecto si ha habido cambios */
 			for(i=1;i<rows-1;i++){
 				for(j=1;j<columns-1;j++){
 					flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
 				}
 			}
+
 
 			#ifdef DEBUG
 				printf("\nResultados iter %d: \n", t);
@@ -209,17 +269,28 @@ int main (int argc, char* argv[])
 					printf("\n");
 				}
 			#endif
-
+			}
+			MPI_Bcast(&flagCambio, 1, MPI_INT, 0, MPI_COMM_WORLD);
 		}
+
 
 		/* 4.3 Inicio cuenta del numero de bloques */
 		numBlocks=0;
+		int numBlocksProc = 0;
 		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				if(matrixResult[i*columns+j] == i*columns+j) numBlocks++;
+			if(world_rank == 0){
+				destination = i % (world_size -1) +1;
+				MPI_Send(&matrixResult[i*(columns)], columns, MPI_INT, destination, i, MPI_COMM_WORLD);
+			}
+			if(world_rank == i % (world_size -1) +1){
+				int result[columns];
+				MPI_Recv(&result, columns, MPI_INT, 0, i, MPI_COMM_WORLD, &stat);
+				for(j=1;j<columns-1;j++){
+					if(result[j] == i*columns+j) numBlocksProc++;
+				}
 			}
 		}
-	}
+		MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
 	//
 	// EL CODIGO A PARALELIZAR TERMINA AQUI
