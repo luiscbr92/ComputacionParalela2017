@@ -262,7 +262,6 @@ int main (int argc, char* argv[])
 			MPI_Recv(&matrixResultCopy[(num_of_rows[world_rank]+1)*columns], columns, MPI_INT, world_rank+1, 1, MPI_COMM_WORLD, &stat);
 			MPI_Send(&matrixResultCopy[(num_of_rows[world_rank])*columns], columns, MPI_INT, world_rank+1, 2, MPI_COMM_WORLD);
 		}
-		MPI_Barrier(MPI_COMM_WORLD);
 		for(i = 1; i < num_of_rows[world_rank]+2; i++){
 			for(j=1;j< columns; j++){
 				flagCambioProc = flagCambioProc + computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
@@ -297,17 +296,17 @@ int main (int argc, char* argv[])
 		#endif
 	}
 
-		/* 4.3 Inicio cuenta del numero de bloques */
-		numBlocks=0;
-		int numBlocksProc = 0;
-		for(i = 1; i < num_of_rows[world_rank]+1; i++){
-			for(j=1;j< columns; j++){
-				if(matrixResult[i*(columns)+j] == (pos_ini[world_rank]+i-1)*(columns)+j){
-					numBlocksProc++;
-				}
+	/* 4.3 Inicio cuenta del numero de bloques */
+	numBlocks=0;
+	int numBlocksProc = 0;
+	for(i = 1; i < num_of_rows[world_rank]+1; i++){
+		for(j=1;j< columns; j++){
+			if(matrixResult[i*(columns)+j] == (pos_ini[world_rank]+i-1)*(columns)+j){
+				numBlocksProc++;
 			}
 		}
-		MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	}
+	MPI_Reduce(&numBlocksProc, &numBlocks, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
 	//
 	// EL CODIGO A PARALELIZAR TERMINA AQUI
