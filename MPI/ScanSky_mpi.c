@@ -171,8 +171,6 @@ int main (int argc, char* argv[])
 		}
 		pos_ini[proc_id] = pini;
 		pini += num_of_rows[proc_id];
-		// if(world_rank == 0)
-		// printf("Soy el proceso %d y me encargaré de las filas %d..%d. Un total de %d filas\n", proc_id, pos_ini[proc_id], pos_ini[proc_id] + num_of_rows[proc_id]-1, num_of_rows[proc_id]);
 	}
 
 	// Inicializo matrixData para todos los procesos que no sean el 0
