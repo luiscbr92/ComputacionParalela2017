@@ -164,72 +164,75 @@ int main (int argc, char* argv[])
 	int pos_ini[world_size];
 	int num_of_rows[world_size];
 	int pini = 1;
-	for(int proc_id = 1; proc_id < world_size; proc_id++){
-		num_of_rows[proc_id] = (rows-2) / (world_size-1);
-		if(proc_id-1 < (rows-2) % (world_size-1)){
+	for(int proc_id = 0; proc_id < world_size; proc_id++){
+		num_of_rows[proc_id] = (rows-2) / world_size;
+		if(proc_id < (rows-2) % world_size){
 			num_of_rows[proc_id]++;
 		}
 		pos_ini[proc_id] = pini;
 		pini += num_of_rows[proc_id];
-		/*if(world_rank == 0){
-			printf("El proceso %d se encargará de las filas %d..%d", proc_id, pos_ini[proc_id], pos_ini[proc_id] + num_of_rows[proc_id]-1);
-			printf(". Un total de %d filas\n", num_of_rows[proc_id]);
-		}*/
+		// if(world_rank == 0)
+		// printf("Soy el proceso %d y me encargaré de las filas %d..%d. Un total de %d filas\n", proc_id, pos_ini[proc_id], pos_ini[proc_id] + num_of_rows[proc_id]-1, num_of_rows[proc_id]);
 	}
 
+	// Inicializo matrixData para todos los procesos que no sean el 0
 	if(world_rank != 0){
 		matrixData= (int *)malloc( (num_of_rows[world_rank]+2)*(columns) * sizeof(int) );
-		matrixResult= (int *)malloc( (num_of_rows[world_rank]+2)*(columns) * sizeof(int) );
-		matrixResultCopy= (int *)malloc( (num_of_rows[world_rank]+2)*(columns) * sizeof(int) );
-		if ( (matrixData == NULL) || (matrixResult == NULL)  || (matrixResultCopy == NULL)  ) {
+		if (matrixData == NULL) {
 			perror ("Error reservando memoria");
 			return -1;
 		}
 	}
 
+	// Inicializo matrixResult y su copia para todos los procesos
+	matrixResult= (int *)malloc( (num_of_rows[world_rank]+2)*(columns) * sizeof(int) );
+	matrixResultCopy= (int *)malloc( (num_of_rows[world_rank]+2)*(columns) * sizeof(int) );
+	if ((matrixResult == NULL)  || (matrixResultCopy == NULL)  ) {
+		perror ("Error reservando memoria");
+		return -1;
+	}
 
+	// Comparto el trocito de matrixData de cada proceso para que empiecen a trabajar cada uno por su cuenta
+	if(world_rank == 0)
+		for(int proc_id = 1; proc_id < world_size; proc_id++)
+			MPI_Send(&matrixData[(pos_ini[proc_id]-1)*columns], (num_of_rows[proc_id]+2)*(columns), MPI_INT, proc_id, 0, MPI_COMM_WORLD);
+	else
+		MPI_Recv(&matrixData[0], (num_of_rows[world_rank]+2)*columns, MPI_INT, 0, 0, MPI_COMM_WORLD, &stat);
 
 	/* 3. Etiquetado inicial */
-	if(world_rank == 0){
-		matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int) );
-		matrixResultCopy= (int *)malloc( (rows)*(columns) * sizeof(int) );
-		if ( (matrixResult == NULL)  || (matrixResultCopy == NULL)  ) {
-			perror ("Error reservando memoria");
-			return -1;
-		}
-	}
-
-	//printf("Proceso %d mdata reside en %p\n", world_rank, matrixData);
-	if(world_rank == 0){
-		for(int proc_id = 1; proc_id < world_size; proc_id++){
-			//printf("Trato de recibir de %d, celdas %d\n", proc_id, num_of_rows[proc_id]*columns);
-			// printf("Intento eviar a %d\n", proc_id);
-			MPI_Send(&matrixData[(pos_ini[proc_id]-1)*columns], (num_of_rows[proc_id]+2)*(columns), MPI_INT, proc_id, 0, MPI_COMM_WORLD);
-			// printf("He enviado a %d\n", proc_id);
-			MPI_Recv(&matrixResult[(pos_ini[proc_id]-1)*columns], (num_of_rows[proc_id]+2)*(columns), MPI_INT, proc_id, 1, MPI_COMM_WORLD, &stat);
-			// printf("Soy 0 y he recibido la devolucion de %d\n", proc_id);
-		}
-	}
-	else{
-		MPI_Recv(&matrixData[0], (num_of_rows[world_rank]+2)*columns, MPI_INT, 0, 0, MPI_COMM_WORLD, &stat);
-		// printf("Soy %d y recibo (supuestamente)\n", world_rank);
-		//printf("Soy %d y he recibido\n", world_rank);
-		for(i = 0; i < num_of_rows[world_rank]+2; i++){
-			for(j=0;j< columns; j++){
-				matrixResult[i*(columns)+j]=-1;
-				// Si es 0 se trata del fondo y no lo computamos
-				if(matrixData[i*(columns)+j]!=0){
-					matrixResult[i*(columns)+j]=(pos_ini[world_rank]+i-1)*(columns)+j;
-				}
+	for(i = 0; i < num_of_rows[world_rank]+2; i++){
+		for(j=0;j< columns; j++){
+			matrixResult[i*(columns)+j]=-1;
+			// Si es 0 se trata del fondo y no lo computamos
+			if(matrixData[i*(columns)+j]!=0){
+				matrixResult[i*(columns)+j]=(pos_ini[world_rank]+i-1)*(columns)+j;
 			}
 		}
-		MPI_Send(&matrixResult[0], (num_of_rows[world_rank]+2)*columns, MPI_INT, 0, 1, MPI_COMM_WORLD);
-		// printf("Soy %d y he devuelto\n", world_rank);
 	}
-	// printf("world_rank =  %d\n", world_rank);
-	// MPI_Barrier(MPI_COMM_WORLD);
-	//printf("Proceso %d. Fin de Etiquetado inicial\n", world_rank);
 
+	#ifdef WRITE
+		if(world_rank == 0){
+			printf("Inicializacion mresult \n");
+			for(j=0;j<columns;j++){
+				printf ("%d\t", matrixResult[j]);
+			}
+			printf("\n");
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
+
+		for(int proc_id = 0; proc_id < world_size; proc_id++){
+			if(world_rank == proc_id){
+				for(i=1;i<num_of_rows[world_rank]+1;i++){
+					for(j=0;j<columns;j++){
+						printf ("%d\t", matrixResult[i*(columns)+j]);
+					}
+					printf("\n");
+				}
+			}
+			MPI_Barrier(MPI_COMM_WORLD);
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
+	#endif
 	/* 4. Computacion */
 	int t=0;
 	/* 4.1 Flag para ver si ha habido cambios y si se continua la ejecucion */
@@ -238,72 +241,69 @@ int main (int argc, char* argv[])
 
 	/* 4.2 Busqueda de los bloques similiares */
 	for(t=0; flagCambio !=0; t++){
-		//printf("Proceso %d inicia iteracion %d\n", world_rank, t);
 		flagCambio=0;
 
 		/* 4.2.1 Actualizacion copia */
-
-		if(world_rank == 0){
-			for(int proc_id = 1; proc_id < world_size; proc_id++)
-				MPI_Recv(&matrixResultCopy[(pos_ini[proc_id]-1)*columns], (num_of_rows[proc_id]+2)*columns, MPI_INT, proc_id, 2, MPI_COMM_WORLD, &stat);
-		}
-		else{
-			for(i = 0; i < num_of_rows[world_rank]+2; i++){
-				for(j=0;j< columns; j++){
-					matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
-				}
+		for(i = 1; i < num_of_rows[world_rank]+2; i++){
+			for(j=1;j< columns; j++){
+				matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
 			}
-			MPI_Send(&matrixResultCopy[0], (num_of_rows[world_rank]+2)*columns, MPI_INT, 0, 2, MPI_COMM_WORLD);
 		}
-		//printf("Proceso %d. Iteracion %d. Fin de Copia\n", world_rank, t);
 
 		flagCambioProc = 0;
 		/* 4.2.2 Computo y detecto si ha habido cambios */
-
-		if(world_rank == 0){
-			for(int proc_id = 1; proc_id < world_size; proc_id++){
-				if(proc_id != 1)
-					MPI_Send(&matrixResultCopy[pos_ini[proc_id-1]*columns], columns, MPI_INT, proc_id, 3, MPI_COMM_WORLD);
-
+		// Primero intercambio las filas con el proceso de arriba
+		if(world_rank != 0){
+			MPI_Send(&matrixResultCopy[columns], columns, MPI_INT, world_rank-1, 1, MPI_COMM_WORLD);
+			MPI_Recv(&matrixResultCopy[0], columns, MPI_INT, world_rank-1, 2, MPI_COMM_WORLD, &stat);
+		}
+		// Despues intercambio las filas con el proceso de abajo
+		if(world_rank != world_size -1){
+			MPI_Recv(&matrixResultCopy[(num_of_rows[world_rank]+1)*columns], columns, MPI_INT, world_rank+1, 1, MPI_COMM_WORLD, &stat);
+			MPI_Send(&matrixResultCopy[(num_of_rows[world_rank])*columns], columns, MPI_INT, world_rank+1, 2, MPI_COMM_WORLD);
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
+		for(i = 1; i < num_of_rows[world_rank]+2; i++){
+			for(j=1;j< columns; j++){
+				flagCambioProc = flagCambioProc + computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
 			}
 		}
-		else{
-			if(world_rank != 1)
-				MPI_Recv(&matrixResultCopy[0], columns, MPI_INT, 0, 3, MPI_COMM_WORLD, &stat);
-			for(i = 1; i < num_of_rows[world_rank]+1; i++){
-				for(j=1;j< columns; j++){
-					flagCambioProc = flagCambioProc + computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
-				}
-			}
-			//MPI_Send(&matrixResult[0], )
-		}
-
-		//printf("Proceso %d. Iteracion %d. Fin de Computacion\n", world_rank, t);
-
 
 		MPI_Allreduce(&flagCambioProc, &flagCambio, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-		//printf("Proceso %d ha hecho el reduce\n", world_rank);
 
 		#ifdef DEBUG
-			printf("\nResultados iter %d: \n", t);
-			for(i=0;i<rows;i++){
+			MPI_Barrier(MPI_COMM_WORLD);
+			if(world_rank == 0){
+				printf("Iteracion %d mresult \n",t);
 				for(j=0;j<columns;j++){
-					printf ("%d\t", matrixResult[i*columns+j]);
+					printf ("%d\t", matrixResult[j]);
 				}
 				printf("\n");
 			}
+			MPI_Barrier(MPI_COMM_WORLD);
+
+			for(int proc_id = 0; proc_id < world_size; proc_id++){
+				if(world_rank == proc_id){
+					for(i=1;i<num_of_rows[world_rank]+1;i++){
+						for(j=0;j<columns;j++){
+							printf ("%d\t", matrixResult[i*(columns)+j]);
+						}
+						printf("\n");
+					}
+				}
+				MPI_Barrier(MPI_COMM_WORLD);
+			}
+			MPI_Barrier(MPI_COMM_WORLD);
 		#endif
 	}
 
 		/* 4.3 Inicio cuenta del numero de bloques */
 		numBlocks=0;
-
 		int numBlocksProc = 0;
-		if(world_rank != 0){
-			for(i = 1; i < num_of_rows[world_rank]+1; i++){
-				for(j=1;j< columns; j++){
-					if(matrixResult[i*columns+j] == (pos_ini[world_rank]+i-1)*(columns)+j)
-						numBlocksProc++;
+		for(i = 1; i < num_of_rows[world_rank]+1; i++){
+			for(j=1;j< columns; j++){
+				if(matrixResult[i*(columns)+j] == (pos_ini[world_rank]+i-1)*(columns)+j){
+					numBlocksProc++;
 				}
 			}
 		}
@@ -322,16 +322,33 @@ int main (int argc, char* argv[])
 
 		printf("Result: %d\n", numBlocks);
 		printf("Time: %lf\n", t_total);
-		#ifdef WRITE
-			printf("Resultado: \n");
-			for(i=0;i<rows;i++){
-				for(j=0;j<columns;j++){
-					printf ("%d\t", matrixResult[i*columns+j]);
-				}
-				printf("\n");
+	}
+	#ifdef WRITE
+		MPI_Barrier(MPI_COMM_WORLD);
+		if(world_rank == 0){
+			printf("Resultado \n",t);
+			for(j=0;j<columns;j++){
+				printf ("%d\t", matrixResult[j]);
 			}
-		#endif
+			printf("\n");
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
 
+		for(int proc_id = 0; proc_id < world_size; proc_id++){
+			if(world_rank == proc_id){
+				for(i=1;i<num_of_rows[world_rank]+1;i++){
+					for(j=0;j<columns;j++){
+						printf ("%d\t", matrixResult[i*(columns)+j]);
+					}
+					printf("\n");
+				}
+			}
+			MPI_Barrier(MPI_COMM_WORLD);
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
+	#endif
+
+	if ( world_rank == 0 ) {
 		/* 6. Liberacion de memoria */
 		free(matrixData);
 		free(matrixResult);
