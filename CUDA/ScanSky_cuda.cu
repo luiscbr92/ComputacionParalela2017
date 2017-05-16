@@ -26,9 +26,17 @@
 #define BLOCK_DIM_COLUMNAS 8
 #define MAX_THREADS 1024
 
-__global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev, int rows, int columns)
-{
-	printf("Bloque %d %d\tHilo %d %d\n", blockIdx.x, blockIdx.y, threadIdx.x, threadIdx.y);
+__global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev, int rows, int columns){
+	int real_i = blockIdx.y * blockDim.y + threadIdx.y;
+	int real_j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(real_i != 0 && real_j != 0 && real_i < rows-1 && real_j < columns-1){
+		matrixResultCopyDev[real_i*(columns)+real_j]=-1;
+		matrixResultDev[real_i*(columns)+real_j]=-1;
+		// Si es 0 se trata del fondo y no lo computamos
+		if(matrixDataDev[real_i*(columns)+real_j]!=0)
+			matrixResultDev[real_i*(columns)+real_j]=real_i*(columns)+real_j;
+	}
 }
 
 
@@ -171,17 +179,17 @@ int main (int argc, char* argv[])
 	else
 		num_fil_grid = rows/BLOCK_DIM_FILAS;
 
-	printf("F%d-C%d\n", num_fil_grid, num_col_grid);
+	//printf("F%d-C%d\n", num_fil_grid, num_col_grid);
 	dim3 grid(num_col_grid, num_fil_grid);
 
-	numBlocks = num_col_grid * num_fil_grid;
-	 printf ("%d\n",numBlocks);
+	//numBlocks = num_col_grid * num_fil_grid;
+	//printf ("%d\n",numBlocks);
 
 	// Control de errores
 	cudaError_t errCuda;
 
 	//Iniclializacion de estructuras
-	errCuda = cudaMalloc(&matrixDataDev, sizeof(matrixData));
+	errCuda = cudaMalloc(&matrixDataDev, rows*columns* sizeof(int));
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixDataDev. Saliendo...\n");
@@ -210,7 +218,7 @@ int main (int argc, char* argv[])
 	}
 
 	//Transferencia de matrixData a device
-  errCuda = cudaMemcpy(matrixDataDev, matrixData, sizeof(matrixData), cudaMemcpyHostToDevice);
+  errCuda = cudaMemcpy(matrixDataDev, matrixData, rows*columns* sizeof(int), cudaMemcpyHostToDevice);
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se copio matrixData a matrixDataDev. Saliendo...\n");
@@ -218,8 +226,6 @@ int main (int argc, char* argv[])
 	}
 
 	/* 3. Etiquetado inicial */
-
-	printf("Llamada a kernel con bloque %d %d y grid %d %d\n", BLOCK_DIM_COLUMNAS, BLOCK_DIM_FILAS, num_col_grid, num_fil_grid);
 	etiquetadoInicialKernel<<<grid,block>>>(matrixDataDev, matrixResultDev, matrixResultCopyDev, rows, columns);
 	errCuda = cudaGetLastError();
 	if(errCuda != cudaSuccess){
@@ -227,7 +233,24 @@ int main (int argc, char* argv[])
 		printf("Fallo Kernel de etiquetado inicial. Saliendo...\n");
 	}
 
-	return 0;
+	//cudaDeviceSynchronize();
+
+	// DE PRUEBA
+  errCuda = cudaMemcpy(matrixResult, matrixResultDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("Prueba transferencia 1. Saliendo...\n");
+		return 0;
+	}
+
+	errCuda = cudaMemcpy(matrixResultCopy, matrixResultCopyDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("Prueba transferencia 2. Saliendo...\n");
+		return 0;
+	}
+	// YA NO DE PRUEBA
+	//cudaDeviceSynchronize();
 
 	/* 4. Computacion */
 	int t=0;
