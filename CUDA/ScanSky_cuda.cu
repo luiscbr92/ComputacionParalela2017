@@ -197,12 +197,12 @@ int main (int argc, char* argv[])
 	// 	return 0;
 	// }
 
-  // errCuda = cudaMemcpy(matrixData, matrixDataDev, sizeof(matrixData), cudaMemcpyHostToDevice);
-	// if(errCuda != cudaSuccess){
-	// 	printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-	// 	printf("No se copio matrixData a matrixDataDev. Saliendo...\n");
-	// 	return 0;
-	// }
+  errCuda = cudaMemcpy(matrixDataDev, matrixData, sizeof(matrixData), cudaMemcpyHostToDevice);
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("No se copio matrixData a matrixDataDev. Saliendo...\n");
+		return 0;
+	}
 
   matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int));
   matrixResultCopy= (int *)malloc( (rows)*(columns) * sizeof(int) );
