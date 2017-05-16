@@ -55,7 +55,7 @@ __global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int 
 	if(i != 0 && j != 0 && i < rows-1 && j < columns-1){
 		// Inicialmente cojo mi indice
 		int result=matrixResultCopyDev[i*columns+j];
-		if(result == 1)
+		if(result == -1)
 			matrixFlagDev[i*columns+j] = 0;
 		else{
 			//Si es de mi mismo grupo, entonces actualizo
@@ -314,7 +314,7 @@ int main (int argc, char* argv[])
 			printf("Fallo Kernel de actualizacionCopiaKernel, iteracion %d. Saliendo...\n", t);
 			return 0;
 		}
-		cudaDeviceSynchronize();
+
 		/* 4.2.2 Computo y detecto si ha habido cambios */
 		computationKernel<<<grid,block>>>(matrixDataDev, matrixResultDev, matrixResultCopyDev, matrixFlagDev, rows, columns);
 		if(errCuda != cudaSuccess){
@@ -322,7 +322,7 @@ int main (int argc, char* argv[])
 			printf("Fallo Kernel de computationKernel, iteracion %d. Saliendo...\n", t);
 			return 0;
 		}
-		cudaDeviceSynchronize();
+
 		//Transferencia de matrixFlag a host
 	  errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
 		if(errCuda != cudaSuccess){
@@ -330,14 +330,13 @@ int main (int argc, char* argv[])
 			printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
 			return 0;
 		}
-		cudaDeviceSynchronize();
+
 		for(i=1;i<rows-1;i++){
 			for(j=1;j<columns-1;j++){
 				flagCambio += matrixFlag[i*columns+j];
 			}
 		}
-		cudaDeviceSynchronize();
-		//printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
+		// printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
 
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
@@ -358,7 +357,7 @@ int main (int argc, char* argv[])
 		printf("No se copio matrixResultDev a matrixResult. Saliendo...\n");
 		return 0;
 	}
-	cudaDeviceSynchronize();
+
 	/* 4.3 Inicio cuenta del numero de bloques */
 	numBlocks=0;
 	for(i=1;i<rows-1;i++){
