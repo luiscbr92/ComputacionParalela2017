@@ -26,19 +26,67 @@
 #define BLOCK_DIM_COLUMNAS 8
 #define MAX_THREADS 1024
 
-__global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev, int rows, int columns){
-	int real_i = blockIdx.y * blockDim.y + threadIdx.y;
-	int real_j = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev,int rows, int columns){
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if(real_i != 0 && real_j != 0 && real_i < rows-1 && real_j < columns-1){
-		matrixResultCopyDev[real_i*(columns)+real_j]=-1;
-		matrixResultDev[real_i*(columns)+real_j]=-1;
+	if(i != 0 && j != 0 && i < rows-1 && j < columns-1){
+		matrixResultCopyDev[i*(columns)+j]=-1;
+		matrixResultDev[i*(columns)+j]=-1;
 		// Si es 0 se trata del fondo y no lo computamos
-		if(matrixDataDev[real_i*(columns)+real_j]!=0)
-			matrixResultDev[real_i*(columns)+real_j]=real_i*(columns)+real_j;
+		if(matrixDataDev[i*(columns)+j]!=0)
+			matrixResultDev[i*(columns)+j]=i*(columns)+j;
 	}
 }
 
+__global__ void actualizacionCopiaKernel(int *matrixResultDev, int *matrixResultCopyDev, int rows, int columns){
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(i != 0 && j != 0 && i < rows-1 && j < columns-1){
+		matrixResultCopyDev[i*(columns)+j]=matrixResultDev[i*(columns)+j];
+	}
+}
+
+__global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int *matrixResultCopyDev, int *matrixFlagDev, int rows, int columns){
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(i != 0 && j != 0 && i < rows-1 && j < columns-1){
+		// Inicialmente cojo mi indice
+		int result=matrixResultCopyDev[i*columns+j];
+		if(result == 1)
+			matrixFlagDev[i*columns+j] = 0;
+		else{
+			//Si es de mi mismo grupo, entonces actualizo
+			if(matrixDataDev[(i-1)*columns+j] == matrixDataDev[i*columns+j])
+			{
+				result = min (result, matrixResultCopyDev[(i-1)*columns+j]);
+			}
+			if(matrixDataDev[(i+1)*columns+j] == matrixDataDev[i*columns+j])
+			{
+				result = min (result, matrixResultCopyDev[(i+1)*columns+j]);
+			}
+			if(matrixDataDev[i*columns+j-1] == matrixDataDev[i*columns+j])
+			{
+				result = min (result, matrixResultCopyDev[i*columns+j-1]);
+			}
+			if(matrixDataDev[i*columns+j+1] == matrixDataDev[i*columns+j])
+			{
+				result = min (result, matrixResultCopyDev[i*columns+j+1]);
+			}
+
+			// Si el indice no ha cambiado retorna 0
+			if(matrixResultDev[i*columns+j] == result)
+				matrixFlagDev[i*columns+j] = 0;
+			// Si el indice cambia, actualizo matrix de resultados con el indice adecuado y retorno 1
+			else {
+				matrixResultDev[i*columns+j]=result;
+				matrixFlagDev[i*columns+j] = 1;
+			}
+		}
+	}
+}
 
 
 /**
@@ -225,32 +273,30 @@ int main (int argc, char* argv[])
 		return 0;
 	}
 
+	int *matrixFlag=NULL, *matrixFlagDev=NULL;
+	matrixFlag= (int *)malloc( (rows)*(columns) * sizeof(int) );
+  if ( (matrixFlag == NULL) ) {
+    perror ("Error reservando memoria");
+    return -1;
+  }
+
+	errCuda = cudaMalloc(&matrixFlagDev, rows*columns* sizeof(int));
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("No se inicializo matrixFlagDev. Saliendo...\n");
+		return 0;
+	}
+
 	/* 3. Etiquetado inicial */
 	etiquetadoInicialKernel<<<grid,block>>>(matrixDataDev, matrixResultDev, matrixResultCopyDev, rows, columns);
 	errCuda = cudaGetLastError();
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("Fallo Kernel de etiquetado inicial. Saliendo...\n");
-	}
-
-	//cudaDeviceSynchronize();
-
-	// DE PRUEBA
-  errCuda = cudaMemcpy(matrixResult, matrixResultDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("Prueba transferencia 1. Saliendo...\n");
 		return 0;
 	}
 
-	errCuda = cudaMemcpy(matrixResultCopy, matrixResultCopyDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("Prueba transferencia 2. Saliendo...\n");
-		return 0;
-	}
-	// YA NO DE PRUEBA
-	//cudaDeviceSynchronize();
+
 
 	/* 4. Computacion */
 	int t=0;
@@ -262,20 +308,36 @@ int main (int argc, char* argv[])
 		flagCambio=0;
 
 		/* 4.2.1 Actualizacion copia */
-		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				if(matrixResult[i*(columns)+j]!=-1){
-					matrixResultCopy[i*(columns)+j]=matrixResult[i*(columns)+j];
-				}
-			}
+		actualizacionCopiaKernel<<<grid,block>>>(matrixResultDev, matrixResultCopyDev, rows, columns);
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("Fallo Kernel de actualizacionCopiaKernel, iteracion %d. Saliendo...\n", t);
+			return 0;
 		}
-
+		cudaDeviceSynchronize();
 		/* 4.2.2 Computo y detecto si ha habido cambios */
+		computationKernel<<<grid,block>>>(matrixDataDev, matrixResultDev, matrixResultCopyDev, matrixFlagDev, rows, columns);
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("Fallo Kernel de computationKernel, iteracion %d. Saliendo...\n", t);
+			return 0;
+		}
+		cudaDeviceSynchronize();
+		//Transferencia de matrixFlag a host
+	  errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
+			return 0;
+		}
+		cudaDeviceSynchronize();
 		for(i=1;i<rows-1;i++){
 			for(j=1;j<columns-1;j++){
-				flagCambio= flagCambio+ computation(i,j,columns, matrixData, matrixResult, matrixResultCopy);
+				flagCambio += matrixFlag[i*columns+j];
 			}
 		}
+		cudaDeviceSynchronize();
+		//printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
 
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
@@ -289,6 +351,14 @@ int main (int argc, char* argv[])
 
 	}
 
+	//Transferencia de matrixResult a host
+	errCuda = cudaMemcpy(matrixResult, matrixResultDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("No se copio matrixResultDev a matrixResult. Saliendo...\n");
+		return 0;
+	}
+	cudaDeviceSynchronize();
 	/* 4.3 Inicio cuenta del numero de bloques */
 	numBlocks=0;
 	for(i=1;i<rows-1;i++){
