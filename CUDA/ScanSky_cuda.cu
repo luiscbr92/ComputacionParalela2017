@@ -24,10 +24,7 @@
 #define currentGPU 0
 #define BLOCK_DIM_FILAS 128
 #define BLOCK_DIM_COLUMNAS 8
-#define MAX_THREADS 1024
-
-static int* d_Result;
-
+#define MAX_THREADS_PER_BLOCK 1024
 
 __global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev,int rows, int columns){
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -100,7 +97,7 @@ __global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int 
 }
 
 
-__global__ void reduce_kernel(const int* g_idata, int* g_odata, int numValues){
+__global__ void reduce_kernel(const int* g_idata, int* g_odata){
     extern __shared__ int sdata[];
 
     // cada hilo carga un elemento desde memoria global hacia memoria shared
@@ -111,9 +108,9 @@ __global__ void reduce_kernel(const int* g_idata, int* g_odata, int numValues){
     __syncthreads();
 
     // Hacemos la reducción en memoria shared
-    for(unsigned int s = 1; s < blockDim.x; s *= 2) {
+    for(unsigned int s = blockDim.x/2; s > 0; s >>= 1) {
 	    // Comprobamos si el hilo actual es activo para esta iteración
-      if (tid % (s*2) == 0){
+      if (tid < s){
 	       // Hacemos la reducción sumando los dos elementos que le tocan a este hilo
           sdata[tid] += sdata[tid+s];
 	    }
@@ -129,41 +126,80 @@ __global__ void reduce_kernel(const int* g_idata, int* g_odata, int numValues){
 
 
 
-int reduce(const int* values, unsigned int numValues){
+int reduce(int* values, unsigned int numValues){
+	// ME PREOCUPA QUE EL numValues NO SEA CORRECTO.
 
-    int numThreadsPerBlock = MAX_THREADS;
-		int numBlocks;
-		if(numValues % numThreadsPerBlock == 0)
-			numBlocks = numValues / numThreadsPerBlock;
+
+	cudaError_t errCuda;
+	// Si el tamaño del vector es impar, sumo el ultimo elemento al primero
+	if(numValues % 2 == 1)
+		values[0] += values[numValues-1];
+
+	// Para almacenar el resultado final
+	int *result = NULL;
+	result= (int *)malloc(sizeof(int) );
+	if ( (result == NULL)   ) {
+ 		perror ("Error reservando memoria");
+	}
+
+	int numThreadsPerBlock = MAX_THREADS_PER_BLOCK;
+	int numBlocks;
+	if(numValues % (numThreadsPerBlock*2) == 0)
+		numBlocks = numValues / (numThreadsPerBlock*2);
+	else
+		numBlocks = numValues / (numThreadsPerBlock*2) +1;
+
+	int *d_Result = NULL;
+	errCuda = cudaMalloc(&d_Result, numBlocks* sizeof(int));
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("No se inicializo d_Result. Saliendo...\n");
+	}
+	int sharedMemorySize = numThreadsPerBlock*2 * sizeof(int);
+	//La primera pasada reduce el array de entrada: VALUES
+  //a un array de igual tamaño que el número total de bloques del grid: D_RESULT
+	reduce_kernel<<<numBlocks,numThreadsPerBlock,sharedMemorySize>>>(values,d_Result);
+	errCuda = cudaGetLastError();
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("Fallo primera fase de reduccion. Saliendo...\n");
+	}
+
+	while(numBlocks > MAX_THREADS_PER_BLOCK){
+		if(numBlocks % (numThreadsPerBlock*2) == 0)
+			numBlocks = numBlocks / (numThreadsPerBlock*2);
 		else
-			numBlocks = numValues / numThreadsPerBlock +1;
+			numBlocks = numBlocks / (numThreadsPerBlock*2) +1;
 
-
-    //La primera pasada reduce el array de entrada: VALUES
-    //a un array de igual tamaño que el número total de bloques del grid: D_RESULT
-    int sharedMemorySize = numThreadsPerBlock * sizeof(int);
-		reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(values, d_Result, numValues);
-		cudaError_t errCuda;
+		reduce_kernel<<<numBlocks,numThreadsPerBlock,sharedMemorySize>>>(d_Result,d_Result);
 		errCuda = cudaGetLastError();
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("Fallo primera fase de reduccion. Saliendo...\n");
 		}
-    //La segunda pasada lanza sólo un único bloque para realizar la reducción final
-    numThreadsPerBlock = numBlocks;
-    numBlocks = 1;
-    sharedMemorySize = numThreadsPerBlock * sizeof(int);
-		printf("Lanzando segundo reduce %d %d %d\n", numBlocks, numThreadsPerBlock, sharedMemorySize);
-    reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(d_Result, d_Result, numThreadsPerBlock);
-		errCuda = cudaGetLastError();
-		if(errCuda != cudaSuccess){
-			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-			printf("Fallo segunda fase de reduccion. Saliendo...\n");
-		}
+	}
 
-		//printf("%d\n", d_Result);
-		int value = 0;
-    return value;
+  //La segunda pasada lanza sólo un único bloque para realizar la reducción final
+  numThreadsPerBlock = numBlocks;
+  numBlocks = 1;
+  sharedMemorySize = numThreadsPerBlock * sizeof(int);
+	// printf("Lanzando segundo reduce %d %d %d\n", numBlocks, numThreadsPerBlock, sharedMemorySize);
+  reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(d_Result, d_Result);
+	errCuda = cudaGetLastError();
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("Fallo segunda fase de reduccion. Saliendo...\n");
+	}
+
+	errCuda =cudaMemcpy(result, d_Result, sizeof(int), cudaMemcpyDeviceToHost);
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("error haciendo una Transferencia. Saliendo...\n");
+	}
+
+	//printf("%d\n", result[0]);
+	int value = result[0];
+  return value;
 }
 
 /**
