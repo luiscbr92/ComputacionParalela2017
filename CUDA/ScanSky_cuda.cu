@@ -88,41 +88,6 @@ __global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int 
 	}
 }
 
-
-/**
-* Funcion secuencial para la busqueda de mi bloque
-*/
-int computation(int x, int y, int columns, int* matrixData, int *matrixResult, int *matrixResultCopy){
-	// Inicialmente cojo mi indice
-	int result=matrixResultCopy[x*columns+y];
-	if( result!= -1){
-		//Si es de mi mismo grupo, entonces actualizo
-		if(matrixData[(x-1)*columns+y] == matrixData[x*columns+y])
-		{
-			result = min (result, matrixResultCopy[(x-1)*columns+y]);
-		}
-		if(matrixData[(x+1)*columns+y] == matrixData[x*columns+y])
-		{
-			result = min (result, matrixResultCopy[(x+1)*columns+y]);
-		}
-		if(matrixData[x*columns+y-1] == matrixData[x*columns+y])
-		{
-			result = min (result, matrixResultCopy[x*columns+y-1]);
-		}
-		if(matrixData[x*columns+y+1] == matrixData[x*columns+y])
-		{
-			result = min (result, matrixResultCopy[x*columns+y+1]);
-		}
-
-		// Si el indice no ha cambiado retorna 0
-		if(matrixResult[x*columns+y] == result){ return 0; }
-		// Si el indice cambia, actualizo matrix de resultados con el indice adecuado y retorno 1
-		else { matrixResult[x*columns+y]=result; return 1;}
-
-	}
-	return 0;
-}
-
 /**
 * Funcion principal
 */
@@ -241,7 +206,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixDataDev. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
   matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int));
@@ -255,14 +220,14 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixResultDev. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 	errCuda = cudaMalloc(&matrixResultCopyDev, rows*columns* sizeof(int));
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixResultCopyDev. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 	//Transferencia de matrixData a device
@@ -270,7 +235,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se copio matrixData a matrixDataDev. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 	int *matrixFlag=NULL, *matrixFlagDev=NULL;
@@ -284,7 +249,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixFlagDev. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 	/* 3. Etiquetado inicial */
@@ -293,7 +258,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("Fallo Kernel de etiquetado inicial. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 
@@ -312,7 +277,7 @@ int main (int argc, char* argv[])
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("Fallo Kernel de actualizacionCopiaKernel, iteracion %d. Saliendo...\n", t);
-			return 0;
+			return -1;
 		}
 
 		/* 4.2.2 Computo y detecto si ha habido cambios */
@@ -320,7 +285,7 @@ int main (int argc, char* argv[])
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("Fallo Kernel de computationKernel, iteracion %d. Saliendo...\n", t);
-			return 0;
+			return -1;
 		}
 
 		//Transferencia de matrixFlag a host
@@ -328,7 +293,7 @@ int main (int argc, char* argv[])
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
-			return 0;
+			return -1;
 		}
 
 		for(i=1;i<rows-1;i++){
@@ -355,7 +320,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se copio matrixResultDev a matrixResult. Saliendo...\n");
-		return 0;
+		return -1;
 	}
 
 	/* 4.3 Inicio cuenta del numero de bloques */
@@ -394,6 +359,21 @@ int main (int argc, char* argv[])
 	free(matrixData);
 	free(matrixResult);
 	free(matrixResultCopy);
+	free(matrixFlag);
+
+	cudaFree(matrixDataDev);
+	cudaFree(matrixResultDev);
+	cudaFree(matrixResultCopyDev);
+	cudaFree(matrixFlagDev);
+
+	cudaDeviceReset();
+
+	errCuda = cudaGetLastError();
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("Fallo al liberar recursos de GPU. Saliendo...\n");
+		return -1;
+	}
 
 	return 0;
 }
