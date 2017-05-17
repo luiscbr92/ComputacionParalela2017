@@ -26,6 +26,9 @@
 #define BLOCK_DIM_COLUMNAS 8
 #define MAX_THREADS 1024
 
+static int* d_Result;
+
+
 __global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev,int rows, int columns){
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
@@ -37,6 +40,14 @@ __global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev
 		if(matrixDataDev[i*(columns)+j]!=0)
 			matrixResultDev[i*(columns)+j]=i*(columns)+j;
 	}
+}
+
+__global__ void inicializaMatrixFlag(int* matrixFlagDev, int rows, int columns){
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(i < rows && j < columns)
+		matrixFlagDev[i*columns+j] = 0;
 }
 
 __global__ void actualizacionCopiaKernel(int *matrixResultDev, int *matrixResultCopyDev, int rows, int columns){
@@ -86,6 +97,73 @@ __global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int 
 			}
 		}
 	}
+}
+
+
+__global__ void reduce_kernel(const int* g_idata, int* g_odata, int numValues){
+    extern __shared__ int sdata[];
+
+    // cada hilo carga un elemento desde memoria global hacia memoria shared
+    unsigned int tid = threadIdx.x;
+    unsigned int igl = blockIdx.x * blockDim.x + threadIdx.x;
+
+    sdata[tid] = g_idata[igl];
+    __syncthreads();
+
+    // Hacemos la reducción en memoria shared
+    for(unsigned int s = 1; s < blockDim.x; s *= 2) {
+	    // Comprobamos si el hilo actual es activo para esta iteración
+      if (tid % (s*2) == 0){
+	       // Hacemos la reducción sumando los dos elementos que le tocan a este hilo
+          sdata[tid] += sdata[tid+s];
+	    }
+	    __syncthreads();
+    }
+
+    // El hilo 0 de cada bloque escribe el resultado final de la reducción
+    // en la memoria global del dispositivo pasada por parámetro (g_odata[])
+    if (tid == 0)
+      g_odata[blockIdx.x] = sdata[0];
+
+}
+
+
+
+int reduce(const int* values, unsigned int numValues){
+
+    int numThreadsPerBlock = MAX_THREADS;
+		int numBlocks;
+		if(numValues % numThreadsPerBlock == 0)
+			numBlocks = numValues / numThreadsPerBlock;
+		else
+			numBlocks = numValues / numThreadsPerBlock +1;
+
+
+    //La primera pasada reduce el array de entrada: VALUES
+    //a un array de igual tamaño que el número total de bloques del grid: D_RESULT
+    int sharedMemorySize = numThreadsPerBlock * sizeof(int);
+		reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(values, d_Result, numValues);
+		cudaError_t errCuda;
+		errCuda = cudaGetLastError();
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("Fallo primera fase de reduccion. Saliendo...\n");
+		}
+    //La segunda pasada lanza sólo un único bloque para realizar la reducción final
+    numThreadsPerBlock = numBlocks;
+    numBlocks = 1;
+    sharedMemorySize = numThreadsPerBlock * sizeof(int);
+		printf("Lanzando segundo reduce %d %d %d\n", numBlocks, numThreadsPerBlock, sharedMemorySize);
+    reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(d_Result, d_Result, numThreadsPerBlock);
+		errCuda = cudaGetLastError();
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("Fallo segunda fase de reduccion. Saliendo...\n");
+		}
+
+		//printf("%d\n", d_Result);
+		int value = 0;
+    return value;
 }
 
 /**
@@ -238,6 +316,7 @@ int main (int argc, char* argv[])
 		return -1;
 	}
 
+	// Inicialización de la matriz que controla los flags
 	int *matrixFlag=NULL, *matrixFlagDev=NULL;
 	matrixFlag= (int *)malloc( (rows)*(columns) * sizeof(int) );
   if ( (matrixFlag == NULL) ) {
@@ -248,7 +327,15 @@ int main (int argc, char* argv[])
 	errCuda = cudaMalloc(&matrixFlagDev, rows*columns* sizeof(int));
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("No se inicializo matrixFlagDev. Saliendo...\n");
+		printf("No se reservo bien el espacio para matrixFlagDev. Saliendo...\n");
+		return -1;
+	}
+
+	inicializaMatrixFlag<<<grid,block>>>(matrixFlagDev, rows, columns);
+	errCuda = cudaGetLastError();
+	if(errCuda != cudaSuccess){
+		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		printf("No se inicializo matrixFlagDev . Saliendo...\n");
 		return -1;
 	}
 
@@ -261,16 +348,17 @@ int main (int argc, char* argv[])
 		return -1;
 	}
 
-
-
 	/* 4. Computacion */
 	int t=0;
 	/* 4.1 Flag para ver si ha habido cambios y si se continua la ejecucion */
 	int flagCambio=1;
+	// int *dflagCambio;
+	// &dflagCambio = 1;
 
 	/* 4.2 Busqueda de los bloques similiares */
 	for(t=0; flagCambio !=0; t++){
 		flagCambio=0;
+		//&dflagCambio = 0;
 
 		/* 4.2.1 Actualizacion copia */
 		actualizacionCopiaKernel<<<grid,block>>>(matrixResultDev, matrixResultCopyDev, rows, columns);
@@ -288,20 +376,27 @@ int main (int argc, char* argv[])
 			return -1;
 		}
 
-		//Transferencia de matrixFlag a host
-	  errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
-		if(errCuda != cudaSuccess){
-			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-			printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
-			return -1;
-		}
+		flagCambio = reduce(matrixFlagDev, rows*columns);
 
-		for(i=1;i<rows-1;i++){
-			for(j=1;j<columns-1;j++){
-				flagCambio += matrixFlag[i*columns+j];
-			}
-		}
-		// printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
+
+		// AHORRAR ESTO DE ABAJO
+		//Transferencia de matrixFlag a host
+	  // errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+		// if(errCuda != cudaSuccess){
+		// 	printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+		// 	printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
+		// 	return -1;
+		// }
+		//
+		// for(i=1;i<rows-1;i++){
+		// 	for(j=1;j<columns-1;j++){
+		// 		flagCambio += matrixFlag[i*columns+j];
+		// 	}
+		// }
+		// AHORRAR ESTO DE ARRIBA
+
+
+		printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
 
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
