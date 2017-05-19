@@ -24,7 +24,7 @@
 #define currentGPU 0
 #define BLOCK_DIM_FILAS 128
 #define BLOCK_DIM_COLUMNAS 8
-#define MAX_THREADS_PER_BLOCK 1024
+#define MAX_THREADS 1024
 
 __global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev, int* matrixResultCopyDev,int rows, int columns){
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
@@ -37,14 +37,6 @@ __global__ void etiquetadoInicialKernel(int* matrixDataDev, int* matrixResultDev
 		if(matrixDataDev[i*(columns)+j]!=0)
 			matrixResultDev[i*(columns)+j]=i*(columns)+j;
 	}
-}
-
-__global__ void inicializaMatrixFlag(int* matrixFlagDev, int rows, int columns){
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-
-	if(i < rows && j < columns)
-		matrixFlagDev[i*columns+j] = 0;
 }
 
 __global__ void actualizacionCopiaKernel(int *matrixResultDev, int *matrixResultCopyDev, int rows, int columns){
@@ -94,112 +86,6 @@ __global__ void computationKernel(int *matrixDataDev, int *matrixResultDev, int 
 			}
 		}
 	}
-}
-
-
-__global__ void reduce_kernel(const int* g_idata, int* g_odata){
-    extern __shared__ int sdata[];
-
-    // cada hilo carga un elemento desde memoria global hacia memoria shared
-    unsigned int tid = threadIdx.x;
-    unsigned int igl = blockIdx.x * blockDim.x + threadIdx.x;
-
-    sdata[tid] = g_idata[igl];
-    __syncthreads();
-
-    // Hacemos la reducción en memoria shared
-    for(unsigned int s = blockDim.x/2; s > 0; s >>= 1) {
-	    // Comprobamos si el hilo actual es activo para esta iteración
-      if (tid < s){
-	       // Hacemos la reducción sumando los dos elementos que le tocan a este hilo
-          sdata[tid] += sdata[tid+s];
-	    }
-	    __syncthreads();
-    }
-
-    // El hilo 0 de cada bloque escribe el resultado final de la reducción
-    // en la memoria global del dispositivo pasada por parámetro (g_odata[])
-    if (tid == 0)
-      g_odata[blockIdx.x] = sdata[0];
-
-}
-
-
-
-int reduce(int* values, unsigned int numValues){
-	// ME PREOCUPA QUE EL numValues NO SEA CORRECTO.
-
-
-	cudaError_t errCuda;
-	// Si el tamaño del vector es impar, sumo el ultimo elemento al primero
-	if(numValues % 2 == 1)
-		values[0] += values[numValues-1];
-
-	// Para almacenar el resultado final
-	int *result = NULL;
-	result= (int *)malloc(sizeof(int) );
-	if ( (result == NULL)   ) {
- 		perror ("Error reservando memoria");
-	}
-
-	int numThreadsPerBlock = MAX_THREADS_PER_BLOCK;
-	int numBlocks;
-	if(numValues % (numThreadsPerBlock*2) == 0)
-		numBlocks = numValues / (numThreadsPerBlock*2);
-	else
-		numBlocks = numValues / (numThreadsPerBlock*2) +1;
-
-	int *d_Result = NULL;
-	errCuda = cudaMalloc(&d_Result, numBlocks* sizeof(int));
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("No se inicializo d_Result. Saliendo...\n");
-	}
-	int sharedMemorySize = numThreadsPerBlock*2 * sizeof(int);
-	//La primera pasada reduce el array de entrada: VALUES
-  //a un array de igual tamaño que el número total de bloques del grid: D_RESULT
-	reduce_kernel<<<numBlocks,numThreadsPerBlock,sharedMemorySize>>>(values,d_Result);
-	errCuda = cudaGetLastError();
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("Fallo primera fase de reduccion. Saliendo...\n");
-	}
-
-	while(numBlocks > MAX_THREADS_PER_BLOCK){
-		if(numBlocks % (numThreadsPerBlock*2) == 0)
-			numBlocks = numBlocks / (numThreadsPerBlock*2);
-		else
-			numBlocks = numBlocks / (numThreadsPerBlock*2) +1;
-
-		reduce_kernel<<<numBlocks,numThreadsPerBlock,sharedMemorySize>>>(d_Result,d_Result);
-		errCuda = cudaGetLastError();
-		if(errCuda != cudaSuccess){
-			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-			printf("Fallo primera fase de reduccion. Saliendo...\n");
-		}
-	}
-
-  //La segunda pasada lanza sólo un único bloque para realizar la reducción final
-  numThreadsPerBlock = numBlocks;
-  numBlocks = 1;
-  sharedMemorySize = numThreadsPerBlock * sizeof(int);
-	// printf("Lanzando segundo reduce %d %d %d\n", numBlocks, numThreadsPerBlock, sharedMemorySize);
-  reduce_kernel<<<numBlocks, numThreadsPerBlock, sharedMemorySize>>>(d_Result, d_Result);
-	errCuda = cudaGetLastError();
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("Fallo segunda fase de reduccion. Saliendo...\n");
-	}
-
-	errCuda =cudaMemcpy(result, d_Result, sizeof(int), cudaMemcpyDeviceToHost);
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("error haciendo una Transferencia. Saliendo...\n");
-	}
-
-	//printf("%d\n", result[0]);
-	int value = result[0];
-  return value;
 }
 
 /**
@@ -306,11 +192,7 @@ int main (int argc, char* argv[])
 	else
 		num_fil_grid = rows/BLOCK_DIM_FILAS;
 
-	//printf("F%d-C%d\n", num_fil_grid, num_col_grid);
 	dim3 grid(num_col_grid, num_fil_grid);
-
-	//numBlocks = num_col_grid * num_fil_grid;
-	//printf ("%d\n",numBlocks);
 
 	// Control de errores
 	cudaError_t errCuda;
@@ -320,7 +202,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixDataDev. Saliendo...\n");
-		return -1;
+		return 0;
 	}
 
   matrixResult= (int *)malloc( (rows)*(columns) * sizeof(int));
@@ -334,14 +216,14 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixResultDev. Saliendo...\n");
-		return -1;
+		return 0;
 	}
 
 	errCuda = cudaMalloc(&matrixResultCopyDev, rows*columns* sizeof(int));
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se inicializo matrixResultCopyDev. Saliendo...\n");
-		return -1;
+		return 0;
 	}
 
 	//Transferencia de matrixData a device
@@ -349,10 +231,9 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se copio matrixData a matrixDataDev. Saliendo...\n");
-		return -1;
+		return 0;
 	}
 
-	// Inicialización de la matriz que controla los flags
 	int *matrixFlag=NULL, *matrixFlagDev=NULL;
 	matrixFlag= (int *)malloc( (rows)*(columns) * sizeof(int) );
   if ( (matrixFlag == NULL) ) {
@@ -363,16 +244,8 @@ int main (int argc, char* argv[])
 	errCuda = cudaMalloc(&matrixFlagDev, rows*columns* sizeof(int));
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("No se reservo bien el espacio para matrixFlagDev. Saliendo...\n");
-		return -1;
-	}
-
-	inicializaMatrixFlag<<<grid,block>>>(matrixFlagDev, rows, columns);
-	errCuda = cudaGetLastError();
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("No se inicializo matrixFlagDev . Saliendo...\n");
-		return -1;
+		printf("No se inicializo matrixFlagDev. Saliendo...\n");
+		return 0;
 	}
 
 	/* 3. Etiquetado inicial */
@@ -381,27 +254,26 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("Fallo Kernel de etiquetado inicial. Saliendo...\n");
-		return -1;
+		return 0;
 	}
+
+
 
 	/* 4. Computacion */
 	int t=0;
 	/* 4.1 Flag para ver si ha habido cambios y si se continua la ejecucion */
 	int flagCambio=1;
-	// int *dflagCambio;
-	// &dflagCambio = 1;
 
 	/* 4.2 Busqueda de los bloques similiares */
 	for(t=0; flagCambio !=0; t++){
 		flagCambio=0;
-		//&dflagCambio = 0;
 
 		/* 4.2.1 Actualizacion copia */
 		actualizacionCopiaKernel<<<grid,block>>>(matrixResultDev, matrixResultCopyDev, rows, columns);
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("Fallo Kernel de actualizacionCopiaKernel, iteracion %d. Saliendo...\n", t);
-			return -1;
+			return 0;
 		}
 
 		/* 4.2.2 Computo y detecto si ha habido cambios */
@@ -409,30 +281,23 @@ int main (int argc, char* argv[])
 		if(errCuda != cudaSuccess){
 			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 			printf("Fallo Kernel de computationKernel, iteracion %d. Saliendo...\n", t);
-			return -1;
+			return 0;
 		}
 
-		flagCambio = reduce(matrixFlagDev, rows*columns);
-
-
-		// AHORRAR ESTO DE ABAJO
 		//Transferencia de matrixFlag a host
-	  // errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
-		// if(errCuda != cudaSuccess){
-		// 	printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		// 	printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
-		// 	return -1;
-		// }
-		//
-		// for(i=1;i<rows-1;i++){
-		// 	for(j=1;j<columns-1;j++){
-		// 		flagCambio += matrixFlag[i*columns+j];
-		// 	}
-		// }
-		// AHORRAR ESTO DE ARRIBA
+	  errCuda = cudaMemcpy(matrixFlag, matrixFlagDev, rows*columns* sizeof(int), cudaMemcpyDeviceToHost);
+		if(errCuda != cudaSuccess){
+			printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
+			printf("No se copio matrixFlagDev a matrixFlag en iteracion %d. Saliendo...\n", t);
+			return 0;
+		}
 
-
-		printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
+		for(i=1;i<rows-1;i++){
+			for(j=1;j<columns-1;j++){
+				flagCambio += matrixFlag[i*columns+j];
+			}
+		}
+		// printf("Iteracion %d, flagCambio=%d\n", t, flagCambio);
 
 		#ifdef DEBUG
 			printf("\nResultados iter %d: \n", t);
@@ -451,7 +316,7 @@ int main (int argc, char* argv[])
 	if(errCuda != cudaSuccess){
 		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
 		printf("No se copio matrixResultDev a matrixResult. Saliendo...\n");
-		return -1;
+		return 0;
 	}
 
 	/* 4.3 Inicio cuenta del numero de bloques */
@@ -490,21 +355,6 @@ int main (int argc, char* argv[])
 	free(matrixData);
 	free(matrixResult);
 	free(matrixResultCopy);
-	free(matrixFlag);
-
-	cudaFree(matrixDataDev);
-	cudaFree(matrixResultDev);
-	cudaFree(matrixResultCopyDev);
-	cudaFree(matrixFlagDev);
-
-	cudaDeviceReset();
-
-	errCuda = cudaGetLastError();
-	if(errCuda != cudaSuccess){
-		printf("ErrCUDA: %s\n", cudaGetErrorString(errCuda));
-		printf("Fallo al liberar recursos de GPU. Saliendo...\n");
-		return -1;
-	}
 
 	return 0;
 }
