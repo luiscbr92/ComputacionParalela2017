@@ -32,7 +32,8 @@
 *.dSYM/
 *.su
 
-# Añadidos por Luis y Angel
+
+# Añadidos por Luis y Angel
 /client
 */ScanSky_seq
 */ScanSky_seq_debug
@@ -40,3 +41,9 @@
 */ScanSky_OpenMP
 */ScanSky_OpenMP_debug
 */ScanSky_OpenMP_write
+*/ScanSky_mpiseq
+*/ScanSky_mpiseq_debug
+*/ScanSky_mpiseq_write
+*/ScanSky_mpi
+*/ScanSky_mpi_debug
+*/ScanSky_mpi_write
